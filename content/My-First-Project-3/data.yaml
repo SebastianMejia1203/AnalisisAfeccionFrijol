@@ -1,0 +1,15 @@
+names:
+- Root
+- Stem
+- healty_leaves
+- rooten_leaf
+nc: 4
+roboflow:
+  license: Private
+  project: my-first-project-suoa8
+  url: https://app.roboflow.com/sdpfoka/my-first-project-suoa8/3
+  version: 3
+  workspace: sdpfoka
+test: ../test/images
+train: ../train/images
+val: ../valid/images
