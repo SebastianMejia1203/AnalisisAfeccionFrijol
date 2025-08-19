@@ -6,9 +6,10 @@ from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QGroupBox,
                              QPushButton, QLabel, QComboBox, QProgressBar, 
                              QTextEdit, QFormLayout, QSplitter, QFrame,
                              QScrollArea, QGridLayout, QMessageBox, QSpinBox,
-                             QTableWidget, QTableWidgetItem, QHeaderView)
+                             QTableWidget, QTableWidgetItem, QHeaderView, QDialog,
+                             QCheckBox, QRadioButton, QButtonGroup)
 from PyQt6.QtCore import Qt, QThread, pyqtSignal
-from PyQt6.QtGui import QFont, QPixmap, QPainter, QPen
+from PyQt6.QtGui import QFont, QPixmap, QPainter, QPen, QImage
 
 import os
 import numpy as np
@@ -16,6 +17,11 @@ import cv2  # Para análisis de color
 from pathlib import Path
 from utils.config import config
 from utils.plant_analyzer import PlantAnalyzer
+
+# Importaciones para histograma
+import matplotlib.pyplot as plt
+from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
+from matplotlib.figure import Figure
 
 class AnalysisWorker(QThread):
     """Worker thread para análisis de plantas"""
@@ -76,6 +82,7 @@ class ImageDisplayWidget(QLabel):
         self.current_title = ""
         self.comparison_image_path = None  # Para alternar entre original y análisis
         self.comparison_title = ""
+        self.original_image_path = None  # NUEVA: Para guardar siempre la ruta de la imagen original
     
     def display_image(self, image_path, title=""):
         """Mostrar imagen con título"""
@@ -178,6 +185,11 @@ class ImageDisplayWidget(QLabel):
         else:
             self.compare_btn.setToolTip("No hay imagen de comparación disponible")
         
+        # Botón de análisis con máscaras
+        self.mask_btn = QPushButton("🎭 Ver Máscaras")
+        self.mask_btn.clicked.connect(lambda: self.show_mask_options(dialog, zoom_slider))
+        self.mask_btn.setToolTip("Ver imagen con máscaras de afectación aplicadas")
+        
         controls_layout.addWidget(QLabel("Zoom:"))
         controls_layout.addWidget(zoom_out_btn)
         controls_layout.addWidget(zoom_slider)
@@ -186,6 +198,7 @@ class ImageDisplayWidget(QLabel):
         controls_layout.addWidget(zoom_label)
         controls_layout.addStretch()
         controls_layout.addWidget(self.compare_btn)
+        controls_layout.addWidget(self.mask_btn)
         
         layout.addLayout(controls_layout)
         
@@ -233,6 +246,230 @@ class ImageDisplayWidget(QLabel):
             
             # Resetear zoom
             zoom_slider.setValue(100)
+    
+    def show_mask_options(self, parent_dialog, zoom_slider):
+        """Mostrar opciones para seleccionar máscaras"""
+        from PyQt6.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QCheckBox, QRadioButton, QButtonGroup, QPushButton, QGroupBox
+        
+        options_dialog = QDialog(parent_dialog)
+        options_dialog.setWindowTitle("Opciones de Máscaras de Afectación")
+        options_dialog.resize(350, 300)
+        
+        layout = QVBoxLayout(options_dialog)
+        
+        # Título
+        title = QLabel("🎭 Configurar Visualización de Máscaras")
+        title.setFont(QFont("", 12, QFont.Weight.Bold))
+        title.setStyleSheet("color: #000000; padding: 10px; background-color: #e8f5e8; border-radius: 5px;")
+        layout.addWidget(title)
+        
+        # Grupo de máscaras
+        masks_group = QGroupBox("Seleccionar Máscaras")
+        masks_layout = QVBoxLayout(masks_group)
+        
+        self.mask_healthy = QCheckBox("🟢 Zona Saludable (Verde)")
+        self.mask_healthy.setChecked(True)
+        self.mask_healthy.setStyleSheet("color: #000000; font-weight: bold;")
+        masks_layout.addWidget(self.mask_healthy)
+        
+        self.mask_disease1 = QCheckBox("🟡 Afectación Leve (Amarillo)")
+        self.mask_disease1.setChecked(True) 
+        self.mask_disease1.setStyleSheet("color: #000000; font-weight: bold;")
+        masks_layout.addWidget(self.mask_disease1)
+        
+        self.mask_disease2 = QCheckBox("🔴 Afectación Severa (Rojo)")
+        self.mask_disease2.setChecked(True)
+        self.mask_disease2.setStyleSheet("color: #000000; font-weight: bold;")
+        masks_layout.addWidget(self.mask_disease2)
+        
+        layout.addWidget(masks_group)
+        
+        # Grupo de color de fondo
+        bg_group = QGroupBox("Color de Fondo")
+        bg_layout = QVBoxLayout(bg_group)
+        
+        self.bg_button_group = QButtonGroup()
+        
+        self.bg_white = QRadioButton("⚪ Fondo Blanco")
+        self.bg_white.setChecked(True)
+        self.bg_white.setStyleSheet("color: #000000; font-weight: bold;")
+        self.bg_button_group.addButton(self.bg_white)
+        bg_layout.addWidget(self.bg_white)
+        
+        self.bg_black = QRadioButton("⚫ Fondo Negro")
+        self.bg_black.setStyleSheet("color: #000000; font-weight: bold;")
+        self.bg_button_group.addButton(self.bg_black)
+        bg_layout.addWidget(self.bg_black)
+        
+        layout.addWidget(bg_group)
+        
+        # Botones
+        buttons_layout = QHBoxLayout()
+        
+        apply_btn = QPushButton("✅ Aplicar Máscaras")
+        apply_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #4CAF50;
+                color: white;
+                font-weight: bold;
+                padding: 10px;
+                border: none;
+                border-radius: 5px;
+            }
+            QPushButton:hover {
+                background-color: #45a049;
+            }
+        """)
+        apply_btn.clicked.connect(lambda: self.apply_masks(options_dialog, zoom_slider))
+        buttons_layout.addWidget(apply_btn)
+        
+        cancel_btn = QPushButton("❌ Cancelar")
+        cancel_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #f44336;
+                color: white;
+                font-weight: bold;
+                padding: 10px;
+                border: none;
+                border-radius: 5px;
+            }
+            QPushButton:hover {
+                background-color: #d32f2f;
+            }
+        """)
+        cancel_btn.clicked.connect(options_dialog.close)
+        buttons_layout.addWidget(cancel_btn)
+        
+        layout.addLayout(buttons_layout)
+        
+        options_dialog.exec()
+    
+    def apply_masks(self, options_dialog, zoom_slider):
+        """Aplicar máscaras seleccionadas para hacer recorte de zonas específicas"""
+        try:
+            import cv2
+            import numpy as np
+            from pathlib import Path
+            
+            # Cerrar diálogo de opciones
+            options_dialog.close()
+            
+            # USAR IMAGEN ORIGINAL, no la de análisis que puede estar cargada
+            original_path = self.original_image_path if self.original_image_path else self.zoom_current_path
+            
+            print(f"DEBUG: Usando imagen: {original_path}")
+            print(f"DEBUG: Imagen actual en zoom: {self.zoom_current_path}")
+            
+            # Leer imagen original
+            image = cv2.imread(original_path)
+            if image is None:
+                QMessageBox.warning(self.parent(), "Error", "No se pudo cargar la imagen original")
+                return
+            
+            # Convertir a RGB para procesamiento
+            image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+            
+            # Convertir a HSV para análisis de color
+            hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
+            
+            # Definir rangos de color para plantas
+            # Verde saludable
+            lower_healthy = np.array([40, 40, 40])
+            upper_healthy = np.array([80, 255, 255])
+            
+            # Amarillo/marrón (enfermedad leve)
+            lower_disease1 = np.array([15, 40, 40])
+            upper_disease1 = np.array([35, 255, 255])
+            
+            # Marrón oscuro/negro (necrosis severa)
+            lower_disease2 = np.array([0, 0, 0])
+            upper_disease2 = np.array([15, 255, 100])
+            
+            # Crear máscaras
+            mask_healthy_cv = cv2.inRange(hsv, lower_healthy, upper_healthy)
+            mask_disease1_cv = cv2.inRange(hsv, lower_disease1, upper_disease1)
+            mask_disease2_cv = cv2.inRange(hsv, lower_disease2, upper_disease2)
+            
+            # Combinar máscaras seleccionadas
+            combined_mask = np.zeros_like(mask_healthy_cv)
+            
+            if self.mask_healthy.isChecked():
+                combined_mask = cv2.bitwise_or(combined_mask, mask_healthy_cv)
+            
+            if self.mask_disease1.isChecked():
+                combined_mask = cv2.bitwise_or(combined_mask, mask_disease1_cv)
+                
+            if self.mask_disease2.isChecked():
+                combined_mask = cv2.bitwise_or(combined_mask, mask_disease2_cv)
+            
+            # Encontrar el contorno del área combinada para hacer el recorte
+            contours, _ = cv2.findContours(combined_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            
+            if contours:
+                # Encontrar el bounding box que contiene todas las áreas seleccionadas
+                all_contours = np.vstack(contours)
+                x, y, w, h = cv2.boundingRect(all_contours)
+                
+                # Agregar un pequeño margen al recorte
+                margin = 20
+                x = max(0, x - margin)
+                y = max(0, y - margin) 
+                w = min(image_rgb.shape[1] - x, w + 2 * margin)
+                h = min(image_rgb.shape[0] - y, h + 2 * margin)
+                
+                # Hacer el recorte de la imagen original
+                cropped_image = image_rgb[y:y+h, x:x+w]
+                cropped_mask = combined_mask[y:y+h, x:x+w]
+                
+                # Crear imagen resultado con el fondo seleccionado
+                result_image = np.zeros_like(cropped_image)
+                
+                # Determinar color de fondo
+                if self.bg_white.isChecked():
+                    result_image.fill(255)  # Fondo blanco
+                else:
+                    result_image.fill(0)    # Fondo negro
+                
+                # Aplicar solo las zonas de la máscara al recorte
+                # AQUÍ ES DONDE MOSTRAMOS LA IMAGEN ORIGINAL, NO LOS COLORES DE ANÁLISIS
+                result_image[cropped_mask > 0] = cropped_image[cropped_mask > 0]
+                
+                print(f"DEBUG: Recorte aplicado - Dimensiones: {cropped_image.shape}")
+                print(f"DEBUG: Píxeles de máscara encontrados: {np.sum(cropped_mask > 0)}")
+                print(f"DEBUG: Color de fondo: {'Blanco' if self.bg_white.isChecked() else 'Negro'}")
+                
+                # Convertir numpy array a QPixmap
+                height, width, channel = result_image.shape
+                bytes_per_line = 3 * width
+                q_image = QImage(result_image.data, width, height, bytes_per_line, QImage.Format.Format_RGB888)
+                self.original_pixmap = QPixmap.fromImage(q_image)
+                
+                # Actualizar imagen en la ventana de zoom
+                self.zoom_image_label.setPixmap(self.original_pixmap)
+                
+                # Actualizar título
+                mask_names = []
+                if self.mask_healthy.isChecked():
+                    mask_names.append("Saludable")
+                if self.mask_disease1.isChecked():
+                    mask_names.append("Leve")
+                if self.mask_disease2.isChecked():
+                    mask_names.append("Severa")
+                
+                bg_name = "Blanco" if self.bg_white.isChecked() else "Negro"
+                
+                parent_dialog = self.mask_btn.window()
+                parent_dialog.setWindowTitle(f"Recorte de máscaras: {', '.join(mask_names)} - Fondo {bg_name}")
+                
+                # Resetear zoom
+                zoom_slider.setValue(100)
+                
+            else:
+                QMessageBox.information(self.parent(), "Sin resultados", 
+                    "No se encontraron zonas que coincidan con las máscaras seleccionadas")
+            
+        except Exception as e:
+            QMessageBox.critical(self.parent(), "Error", f"Error aplicando máscaras:\n{str(e)}")
 
 class AnalysisTab(QWidget):
     """Pestaña para análisis de afectación en plantas"""
@@ -580,17 +817,14 @@ class AnalysisTab(QWidget):
         analysis_layout.addWidget(self.analysis_image)
         images_splitter.addWidget(analysis_group)
         
-        # Panel de estadísticas detalladas
-        stats_group = QGroupBox("Estadísticas Detalladas")
-        stats_layout = QVBoxLayout(stats_group)
+        # Panel de histograma RGB
+        histogram_group = QGroupBox("Histograma RGB")
+        histogram_layout = QVBoxLayout(histogram_group)
         
-        self.stats_text = QTextEdit()
-        self.stats_text.setReadOnly(True)
-        self.stats_text.setMaximumHeight(200)
-        self.stats_text.setFont(QFont("Consolas", 9))
-        stats_layout.addWidget(self.stats_text)
+        self.histogram_widget = HistogramWidget()
+        histogram_layout.addWidget(self.histogram_widget)
         
-        images_splitter.addWidget(stats_group)
+        images_splitter.addWidget(histogram_group)
         
         # Configurar proporciones
         images_splitter.setSizes([250, 250, 300])
@@ -799,7 +1033,9 @@ class AnalysisTab(QWidget):
         stats_text += f"Afectación moderada (30-70%): {moderado_count} ({moderado_count/total_samples*100:.1f}%)\n"
         stats_text += f"Afectación severa (≥ 70%): {severo_count} ({severo_count/total_samples*100:.1f}%)\n"
         
-        self.stats_text.setText(stats_text)
+        # Las estadísticas generales ahora se muestran en el histograma RGB
+        # El histograma se actualiza cuando se selecciona una imagen
+        pass
     
     def show_image_detail(self, image_num, category):
         """Mostrar imagen en ventana de detalle con zoom"""
@@ -1477,17 +1713,22 @@ class AnalysisTab(QWidget):
             if original_image and original_image.exists():
                 # 1. Mostrar imagen original en el primer cuadro
                 self.original_image.display_image(str(original_image), f"Imagen Original {image_num}")
+                self.original_image.original_image_path = str(original_image)  # Guardar ruta original
                 
                 # 2. Generar y mostrar análisis de color de la imagen original
                 analysis_image_path = self.perform_color_analysis(str(original_image), f"analysis_img{image_num:03d}")
                 if analysis_image_path:
                     self.analysis_image.display_image(str(analysis_image_path), f"Análisis de Color - Imagen {image_num}")
+                    self.analysis_image.original_image_path = str(original_image)  # Guardar ruta original también aquí
                     
                     # Configurar imágenes de comparación para alternar
                     self.original_image.set_comparison_image(str(analysis_image_path), f"Análisis de Color - Imagen {image_num}")
                     self.analysis_image.set_comparison_image(str(original_image), f"Imagen Original {image_num}")
                 
-                # 3. Buscar y mostrar recortes disponibles
+                # 3. Actualizar histograma RGB con la imagen original
+                self.histogram_widget.update_histogram(str(original_image), f"Histograma - Imagen {image_num}")
+                
+                # 4. Buscar y mostrar recortes disponibles
                 self.load_available_crops(predict_dir, image_num, category)
                 
                 # Actualizar información
@@ -1676,11 +1917,16 @@ class AnalysisTab(QWidget):
         try:
             # 1. Mostrar recorte original en el primer cuadro
             self.original_image.display_image(str(crop_file), f"Recorte: {crop_file.name}")
+            self.original_image.original_image_path = str(crop_file)  # Guardar ruta original del recorte
             
-            # 2. Generar y mostrar análisis de color del recorte
+            # 2. Actualizar histograma RGB con el recorte
+            self.histogram_widget.update_histogram(str(crop_file), f"Histograma - {crop_file.name}")
+            
+            # 3. Generar y mostrar análisis de color del recorte
             analysis_image_path = self.perform_color_analysis(str(crop_file), f"crop_analysis_{crop_file.stem}")
             if analysis_image_path:
                 self.analysis_image.display_image(str(analysis_image_path), f"Análisis de Color - {crop_file.name}")
+                self.analysis_image.original_image_path = str(crop_file)  # Guardar ruta original también aquí
                 
                 # Configurar imágenes de comparación para alternar
                 self.original_image.set_comparison_image(str(analysis_image_path), f"Análisis de Color - {crop_file.name}")
@@ -1688,3 +1934,171 @@ class AnalysisTab(QWidget):
                 
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Error analizando recorte:\n{str(e)}")
+
+
+class HistogramWidget(QWidget):
+    """Widget para mostrar histograma RGB clickeable"""
+    
+    def __init__(self):
+        super().__init__()
+        self.setup_ui()
+        self.current_image_path = None
+        # Inicializar con histograma vacío
+        self.clear_histogram()
+        
+    def setup_ui(self):
+        """Configurar interfaz del histograma"""
+        layout = QVBoxLayout(self)
+        
+        # Canvas para el histograma
+        self.figure = Figure(figsize=(6, 4))
+        self.canvas = FigureCanvas(self.figure)
+        self.canvas.mpl_connect('button_press_event', self.on_histogram_click)
+        
+        layout.addWidget(self.canvas)
+        
+        # Label informativo
+        self.info_label = QLabel("Seleccione una imagen para ver su histograma RGB")
+        self.info_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.info_label.setStyleSheet("color: #666; font-style: italic; padding: 5px;")
+        layout.addWidget(self.info_label)
+        
+    def update_histogram(self, image_path, title="Histograma RGB"):
+        """Actualizar histograma con nueva imagen"""
+        try:
+            self.current_image_path = image_path
+            
+            if not os.path.exists(image_path):
+                self.clear_histogram()
+                return
+                
+            # Cargar imagen
+            image = cv2.imread(image_path)
+            if image is None:
+                self.clear_histogram()
+                return
+                
+            # Convertir de BGR a RGB
+            image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+            
+            # Limpiar figura
+            self.figure.clear()
+            
+            # Crear histogramas para cada canal
+            ax = self.figure.add_subplot(111)
+            
+            colors = ['red', 'green', 'blue']
+            channel_names = ['Rojo', 'Verde', 'Azul']
+            
+            for i, (color, name) in enumerate(zip(colors, channel_names)):
+                hist = cv2.calcHist([image_rgb], [i], None, [256], [0, 256])
+                ax.plot(hist, color=color, alpha=0.7, linewidth=2, label=name)
+            
+            ax.set_xlim([0, 256])
+            ax.set_xlabel('Intensidad de Color')
+            ax.set_ylabel('Frecuencia')
+            ax.set_title(title, fontsize=12, fontweight='bold')
+            ax.legend()
+            ax.grid(True, alpha=0.3)
+            
+            # Configurar estilo
+            ax.set_facecolor('#f8f8f8')
+            self.figure.patch.set_facecolor('white')
+            
+            # Ajustar layout
+            self.figure.tight_layout()
+            self.canvas.draw()
+            
+            # Actualizar info
+            self.info_label.setText(f"Histograma de: {os.path.basename(image_path)}\n(Clic para ampliar)")
+            
+        except Exception as e:
+            print(f"Error actualizando histograma: {e}")
+            self.clear_histogram()
+    
+    def clear_histogram(self):
+        """Limpiar histograma"""
+        self.figure.clear()
+        ax = self.figure.add_subplot(111)
+        ax.text(0.5, 0.5, 'No hay imagen seleccionada', 
+                ha='center', va='center', transform=ax.transAxes,
+                fontsize=12, color='#666')
+        ax.set_xlim([0, 1])
+        ax.set_ylim([0, 1])
+        ax.set_xticks([])
+        ax.set_yticks([])
+        self.canvas.draw()
+        self.info_label.setText("Seleccione una imagen para ver su histograma RGB")
+    
+    def on_histogram_click(self, event):
+        """Manejar clic en el histograma para zoom"""
+        if event.button == 1 and self.current_image_path:  # Clic izquierdo
+            self.show_histogram_zoom()
+    
+    def show_histogram_zoom(self):
+        """Mostrar histograma con zoom en ventana nueva"""
+        if not self.current_image_path:
+            return
+            
+        try:
+            dialog = QDialog(self)
+            dialog.setWindowTitle(f"Histograma RGB - {os.path.basename(self.current_image_path)}")
+            dialog.resize(800, 600)
+            
+            layout = QVBoxLayout(dialog)
+            
+            # Canvas más grande para zoom
+            zoom_figure = Figure(figsize=(10, 7))
+            zoom_canvas = FigureCanvas(zoom_figure)
+            
+            # Cargar y procesar imagen
+            image = cv2.imread(self.current_image_path)
+            if image is not None:
+                image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+                
+                # Crear histogramas detallados
+                ax = zoom_figure.add_subplot(111)
+                
+                colors = ['red', 'green', 'blue']
+                channel_names = ['Canal Rojo', 'Canal Verde', 'Canal Azul']
+                
+                for i, (color, name) in enumerate(zip(colors, channel_names)):
+                    hist = cv2.calcHist([image_rgb], [i], None, [256], [0, 256])
+                    ax.plot(hist, color=color, alpha=0.8, linewidth=2.5, label=name)
+                
+                ax.set_xlim([0, 256])
+                ax.set_xlabel('Intensidad de Color (0-255)', fontsize=12)
+                ax.set_ylabel('Número de Píxeles', fontsize=12)
+                ax.set_title(f'Histograma RGB - {os.path.basename(self.current_image_path)}', 
+                           fontsize=14, fontweight='bold')
+                ax.legend(fontsize=12)
+                ax.grid(True, alpha=0.3)
+                
+                # Agregar estadísticas
+                mean_values = [np.mean(image_rgb[:,:,i]) for i in range(3)]
+                std_values = [np.std(image_rgb[:,:,i]) for i in range(3)]
+                
+                stats_text = f"Promedios - R: {mean_values[0]:.1f}, G: {mean_values[1]:.1f}, B: {mean_values[2]:.1f}\n"
+                stats_text += f"Desv. Est. - R: {std_values[0]:.1f}, G: {std_values[1]:.1f}, B: {std_values[2]:.1f}"
+                
+                ax.text(0.02, 0.98, stats_text, transform=ax.transAxes, 
+                       verticalalignment='top', fontsize=10,
+                       bbox=dict(boxstyle='round', facecolor='white', alpha=0.8))
+                
+                # Configurar estilo
+                ax.set_facecolor('#f8f8f8')
+                zoom_figure.patch.set_facecolor('white')
+                zoom_figure.tight_layout()
+            
+            layout.addWidget(zoom_canvas)
+            
+            # Botón cerrar
+            close_btn = QPushButton("Cerrar")
+            close_btn.clicked.connect(dialog.close)
+            layout.addWidget(close_btn)
+            
+            dialog.exec()
+            
+        except Exception as e:
+            print(f"Error mostrando histograma con zoom: {e}")
+            QMessageBox.warning(self, "Error", f"No se pudo mostrar el histograma:\n{str(e)}")
