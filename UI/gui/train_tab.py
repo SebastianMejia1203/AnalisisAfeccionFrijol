@@ -39,9 +39,10 @@ class TrainingWorker(QThread):
             self.progress_update.emit("🚀 Iniciando entrenamiento...")
             
             # Configurar parámetros de entrenamiento
+            data_yaml_path = "E:/Python/Vision Computacional/Segmentacion/content/My-First-Project-3/data.yaml"
             train_config = {
                 'model': self.model_name,
-                'data': str(config.DATA_YAML_PATH),
+                'data': data_yaml_path,
                 'epochs': self.epochs,
                 'imgsz': self.imgsz,
                 'batch': self.batch,
@@ -362,10 +363,11 @@ class TrainTab(QWidget):
     def update_dataset_info(self):
         """Actualizar información del dataset"""
         try:
-            if config.DATA_YAML_PATH.exists():
+            data_yaml_path = Path("E:/Python/Vision Computacional/Segmentacion/content/My-First-Project-3/data.yaml")
+            if data_yaml_path.exists():
                 # Leer información del data.yaml
                 import yaml
-                with open(config.DATA_YAML_PATH, 'r') as f:
+                with open(data_yaml_path, 'r') as f:
                     data = yaml.safe_load(f)
                 
                 nc = data.get('nc', 0)
@@ -375,9 +377,10 @@ class TrainTab(QWidget):
                 if names:
                     info_text += f"🏷️ Nombres: {', '.join(names[:3])}{'...' if len(names) > 3 else ''}\n"
                 
-                # Verificar directorios
-                train_dir = config.DATASET_DIR / 'train' / 'images'
-                valid_dir = config.DATASET_DIR / 'valid' / 'images'
+                # Verificar directorios del dataset
+                dataset_dir = Path("E:/Python/Vision Computacional/Segmentacion/content/My-First-Project-3")
+                train_dir = dataset_dir / 'train' / 'images'
+                valid_dir = dataset_dir / 'valid' / 'images'
                 
                 if train_dir.exists():
                     train_count = len(list(train_dir.glob('*.jpg')) + list(train_dir.glob('*.jpeg')))
@@ -414,8 +417,10 @@ class TrainTab(QWidget):
             batch = self.batch_spin.value()
             
             # Validar configuración
-            if not config.DATA_YAML_PATH.exists():
-                QMessageBox.error(self, "Error", "Dataset no encontrado. Verificar configuración.")
+            # Buscar data.yaml en el dataset
+            data_yaml_path = Path("E:/Python/Vision Computacional/Segmentacion/content/My-First-Project-3/data.yaml")
+            if not data_yaml_path.exists():
+                QMessageBox.critical(self, "Error", "Dataset no encontrado. Verificar configuración.")
                 return
             
             # Crear worker thread
@@ -434,7 +439,7 @@ class TrainTab(QWidget):
             self.training_worker.start()
             
         except Exception as e:
-            QMessageBox.error(self, "Error", f"Error al iniciar entrenamiento: {str(e)}")
+            QMessageBox.critical(self, "Error", f"Error al iniciar entrenamiento: {str(e)}")
     
     def stop_training(self):
         """Detener entrenamiento"""
@@ -504,4 +509,4 @@ class TrainTab(QWidget):
             else:
                 QMessageBox.warning(self, "Advertencia", "Carpeta de resultados no encontrada")
         except Exception as e:
-            QMessageBox.error(self, "Error", f"Error al abrir resultados: {str(e)}")
+            QMessageBox.critical(self, "Error", f"Error al abrir resultados: {str(e)}")
