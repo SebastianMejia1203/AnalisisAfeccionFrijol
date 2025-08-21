@@ -11,19 +11,22 @@ class PlantAnalyzer:
     """Clase para análisis de afectación en plantas"""
     
     def __init__(self):
-        # Rangos de color en HSV para diferentes estados
+        # Rangos de color en HSV para diferentes estados, ajustados según las imágenes
         self.color_ranges = {
             "sano": {
-                "lower": np.array([35, 40, 40]),
+                # Verdes vibrantes y saludables
+                "lower": np.array([35, 50, 50]),
                 "upper": np.array([85, 255, 255])
             },
             "afectado": {
-                "lower": np.array([20, 100, 100]),
-                "upper": np.array([30, 255, 255])
+                # Tonos amarillentos y verdes pálidos
+                "lower": np.array([20, 50, 50]),
+                "upper": np.array([34, 255, 255])
             },
             "severo": {
-                "lower": np.array([10, 50, 20]),
-                "upper": np.array([20, 255, 200])
+                # Tonos marrones, cafés y áreas necróticas (secas/quemadas)
+                "lower": np.array([5, 30, 20]),
+                "upper": np.array([19, 255, 200])
             }
         }
         

@@ -10,65 +10,164 @@ from PyQt6.QtCore import Qt, QThread, pyqtSignal, QTimer
 from PyQt6.QtGui import QFont
 
 import os
+import subprocess
+import sys
+import time
 from pathlib import Path
-from utils.config import config
-from utils.yolo_utils import YOLOProcessor
+from datetime import datetime
 
 class TrainingWorker(QThread):
-    """Worker thread para entrenamiento"""
+    """Worker thread para entrenamiento YOLO"""
     
     progress_update = pyqtSignal(str)
     training_completed = pyqtSignal(bool, str)
     
-    def __init__(self, model_name, epochs, imgsz, batch):
+    def __init__(self, model_name, epochs, imgsz, batch, data_path, output_dir):
         super().__init__()
-        self.model_name = model_name
+        self.model_name = model_name  # Nombre del archivo (ej: yolov9s.pt)
         self.epochs = epochs
         self.imgsz = imgsz
         self.batch = batch
-        self.yolo_processor = YOLOProcessor()
+        self.data_path = data_path    # Ruta al data.yaml
+        self.output_dir = output_dir  # Directorio de salida
         self.should_stop = False
+        self.process = None
     
     def stop(self):
         """Detener entrenamiento"""
         self.should_stop = True
+        if self.process:
+            self.process.terminate()
         
     def run(self):
-        """Ejecutar entrenamiento"""
+        """Ejecutar entrenamiento con múltiples métodos de fallback"""
         try:
-            self.progress_update.emit("🚀 Iniciando entrenamiento...")
+            # Cambiar al directorio correcto para rutas relativas
+            base_dir = Path(self.data_path).parent.parent  # My-First-Project-3 -> content
+            os.chdir(str(base_dir))
             
-            # Configurar parámetros de entrenamiento
-            data_yaml_path = "E:/Python/Vision Computacional/Segmentacion/content/My-First-Project-3/data.yaml"
-            train_config = {
-                'model': self.model_name,
-                'data': data_yaml_path,
-                'epochs': self.epochs,
-                'imgsz': self.imgsz,
-                'batch': self.batch,
-                'project': str(config.RUNS_DIR),
-                'name': f'train_{config.get_current_timestamp()}',
-                'save_period': 10,
-                'patience': 30,
-                'device': 'cpu'  # Cambiar a 'cuda' si tienes GPU
-            }
+            self.progress_update.emit(f"� Cambiando al directorio: {base_dir}")
             
-            self.progress_update.emit(f"⚙️ Configuración: {train_config}")
+            # Método 1: Intentar con CLI de YOLO (como en Jupyter)
+            success = self._try_yolo_cli_method()
             
-            # Ejecutar entrenamiento
-            if not self.should_stop:
-                results = self.yolo_processor.train_model(train_config, self.progress_update.emit)
+            if not success:
+                # Método 2: Fallback con ultralytics Python
+                self.progress_update.emit("🔄 CLI falló, intentando método Python...")
+                success = self._try_python_method()
+            
+            if success:
+                self.progress_update.emit("✅ Entrenamiento completado exitosamente!")
                 
-                if results and not self.should_stop:
-                    model_path = results.get('model_path', '')
-                    self.training_completed.emit(True, model_path)
-                else:
-                    self.training_completed.emit(False, "Entrenamiento detenido por el usuario")
+                # Buscar el modelo entrenado
+                possible_paths = [
+                    Path(self.output_dir) / f"train_{datetime.now().strftime('%Y%m%d_%H%M%S')}" / "weights" / "best.pt",
+                    Path("runs") / "detect" / "train" / "weights" / "best.pt",
+                    Path("runs") / "detect" / "train2" / "weights" / "best.pt",
+                    Path("runs") / "detect" / "train3" / "weights" / "best.pt"
+                ]
+                
+                model_path = None
+                for path in possible_paths:
+                    if path.exists():
+                        model_path = str(path)
+                        break
+                
+                self.training_completed.emit(True, model_path or "Entrenamiento completado")
             else:
-                self.training_completed.emit(False, "Entrenamiento cancelado")
+                self.progress_update.emit("❌ Todos los métodos de entrenamiento fallaron")
+                self.training_completed.emit(False, "Error: No se pudo completar el entrenamiento")
                 
         except Exception as e:
-            self.training_completed.emit(False, f"Error durante el entrenamiento: {str(e)}")
+            error_msg = f"Error durante entrenamiento: {str(e)}"
+            self.progress_update.emit(f"❌ {error_msg}")
+            self.training_completed.emit(False, error_msg)
+    
+    def _try_yolo_cli_method(self):
+        """Intentar entrenamiento con CLI de YOLO (método preferido)"""
+        try:
+            # Construir comando exactamente como en Jupyter
+            # !yolo task=detect mode=train model=yolov9s.pt data=My-First-Project-3/data.yaml epochs=125 imgsz=640 plots=True
+            cmd = [
+                "yolo", "task=detect", "mode=train", 
+                f"model={self.model_name}",
+                f"data=My-First-Project-3/data.yaml",
+                f"epochs={self.epochs}",
+                f"imgsz={self.imgsz}",
+                f"batch={self.batch}",
+                "plots=True"
+            ]
+            
+            self.progress_update.emit(f"🚀 Ejecutando: {' '.join(cmd)}")
+            
+            # Ejecutar comando
+            self.process = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                universal_newlines=True,
+                bufsize=1
+            )
+            
+            # Procesar salida en tiempo real
+            while True:
+                if self.should_stop:
+                    self.process.terminate()
+                    return False
+                
+                output = self.process.stdout.readline()
+                if output == '' and self.process.poll() is not None:
+                    break
+                
+                if output:
+                    line = output.strip()
+                    if line:
+                        self.progress_update.emit(f"📊 {line}")
+            
+            # Verificar código de salida
+            return_code = self.process.poll()
+            if return_code == 0:
+                return True
+            else:
+                self.progress_update.emit(f"❌ CLI terminó con código {return_code}")
+                return False
+                
+        except FileNotFoundError:
+            self.progress_update.emit("⚠️ CLI 'yolo' no encontrado, probando método alternativo...")
+            return False
+        except Exception as e:
+            self.progress_update.emit(f"⚠️ Error con CLI: {str(e)}")
+            return False
+    
+    def _try_python_method(self):
+        """Método fallback usando ultralytics directamente"""
+        try:
+            from ultralytics import YOLO
+            
+            self.progress_update.emit("🐍 Usando método Python directo...")
+            
+            # Cargar modelo
+            model = YOLO(self.model_name)
+            
+            # Entrenar con los mismos parámetros
+            results = model.train(
+                data="My-First-Project-3/data.yaml",
+                epochs=self.epochs,
+                imgsz=self.imgsz,
+                batch=self.batch,
+                plots=True,
+                project=self.output_dir,
+                name=f"train_python_{int(time.time())}"
+            )
+            
+            return True
+            
+        except ImportError:
+            self.progress_update.emit("❌ ultralytics no está instalado")
+            return False
+        except Exception as e:
+            self.progress_update.emit(f"❌ Error método Python: {str(e)}")
+            return False
 
 class TrainTab(QWidget):
     """Pestaña para entrenamiento de modelos"""
@@ -77,8 +176,14 @@ class TrainTab(QWidget):
     
     def __init__(self):
         super().__init__()
-        self.yolo_processor = YOLOProcessor()
         self.training_worker = None
+        
+        # Configuración por defecto (sin dependencia del config)
+        self.available_models = ['yolov9n.pt', 'yolov9s.pt', 'yolov9m.pt', 'yolov9l.pt']
+        self.default_epochs = 125
+        self.default_imgsz = 640
+        self.default_batch = 8
+        
         self.setup_ui()
         self.load_existing_models()
     
@@ -134,7 +239,7 @@ class TrainTab(QWidget):
         model_layout.setSpacing(5)
         
         self.model_combo = QComboBox()
-        self.model_combo.addItems(config.AVAILABLE_MODELS)
+        self.model_combo.addItems(self.available_models)
         self.model_combo.setMinimumHeight(25)  # Altura mínima para visibilidad
         model_layout.addRow("Modelo base:", self.model_combo)
         
@@ -149,7 +254,7 @@ class TrainTab(QWidget):
         # ÉPOCAS - Número de iteraciones de entrenamiento
         self.epochs_spin = QSpinBox()
         self.epochs_spin.setRange(1, 1000)
-        self.epochs_spin.setValue(config.DEFAULT_TRAIN_CONFIG["epochs"])
+        self.epochs_spin.setValue(self.default_epochs)
         self.epochs_spin.setMinimumHeight(25)
         params_layout.addRow("Épocas:", self.epochs_spin)
         
@@ -157,14 +262,14 @@ class TrainTab(QWidget):
         self.imgsz_spin = QSpinBox()
         self.imgsz_spin.setRange(320, 1280)
         self.imgsz_spin.setSingleStep(32)
-        self.imgsz_spin.setValue(config.DEFAULT_TRAIN_CONFIG["imgsz"])
+        self.imgsz_spin.setValue(self.default_imgsz)
         self.imgsz_spin.setMinimumHeight(25)
         params_layout.addRow("Tamaño imagen:", self.imgsz_spin)
         
         # TAMAÑO DE LOTE - Número de imágenes por iteración
         self.batch_spin = QSpinBox()
         self.batch_spin.setRange(1, 64)
-        self.batch_spin.setValue(config.DEFAULT_TRAIN_CONFIG["batch"])
+        self.batch_spin.setValue(self.default_batch)
         self.batch_spin.setMinimumHeight(25)
         params_layout.addRow("Batch size:", self.batch_spin)
         
@@ -363,7 +468,10 @@ class TrainTab(QWidget):
     def update_dataset_info(self):
         """Actualizar información del dataset"""
         try:
-            data_yaml_path = Path("E:/Python/Vision Computacional/Segmentacion/content/My-First-Project-3/data.yaml")
+            # Usar rutas relativas
+            base_dir = Path(__file__).parent.parent.parent  # UI/gui -> UI -> Segmentacion
+            data_yaml_path = base_dir / "content" / "My-First-Project-3" / "data.yaml"
+            
             if data_yaml_path.exists():
                 # Leer información del data.yaml
                 import yaml
@@ -378,7 +486,7 @@ class TrainTab(QWidget):
                     info_text += f"🏷️ Nombres: {', '.join(names[:3])}{'...' if len(names) > 3 else ''}\n"
                 
                 # Verificar directorios del dataset
-                dataset_dir = Path("E:/Python/Vision Computacional/Segmentacion/content/My-First-Project-3")
+                dataset_dir = base_dir / "content" / "My-First-Project-3"
                 train_dir = dataset_dir / 'train' / 'images'
                 valid_dir = dataset_dir / 'valid' / 'images'
                 
@@ -399,9 +507,22 @@ class TrainTab(QWidget):
     def load_existing_models(self):
         """Cargar modelos existentes"""
         self.history_combo.clear()
-        train_runs = config.get_all_train_runs()
-        for run in train_runs:
-            self.history_combo.addItem(run.name)
+        
+        # Usar rutas relativas
+        base_dir = Path(__file__).parent.parent.parent  # UI/gui -> UI -> Segmentacion
+        runs_dir = base_dir / "content" / "runs"
+        
+        if runs_dir.exists():
+            train_dirs = []
+            for item in runs_dir.iterdir():
+                if item.is_dir() and item.name.startswith("train"):
+                    train_dirs.append(item)
+            
+            # Ordenar por fecha de modificación (más recientes primero)
+            train_dirs = sorted(train_dirs, key=lambda x: x.stat().st_mtime, reverse=True)
+            
+            for run_dir in train_dirs:
+                self.history_combo.addItem(run_dir.name)
     
     def start_training(self):
         """Iniciar entrenamiento"""
@@ -416,15 +537,48 @@ class TrainTab(QWidget):
             imgsz = self.imgsz_spin.value()
             batch = self.batch_spin.value()
             
-            # Validar configuración
-            # Buscar data.yaml en el dataset
-            data_yaml_path = Path("E:/Python/Vision Computacional/Segmentacion/content/My-First-Project-3/data.yaml")
+            # Configurar rutas usando rutas relativas
+            base_dir = Path(__file__).parent.parent.parent  # UI/gui -> UI -> Segmentacion
+            data_yaml_path = base_dir / "content" / "My-First-Project-3" / "data.yaml"
+            output_dir = base_dir / "content" / "runs"
+            
+            # Verificar que el data.yaml existe
             if not data_yaml_path.exists():
-                QMessageBox.critical(self, "Error", "Dataset no encontrado. Verificar configuración.")
+                QMessageBox.critical(self, "Error", f"Dataset no encontrado en:\n{data_yaml_path}")
                 return
             
-            # Crear worker thread
-            self.training_worker = TrainingWorker(model_name, epochs, imgsz, batch)
+            # Verificar que el modelo existe en content
+            model_path = base_dir / "content" / model_name
+            if not model_path.exists():
+                QMessageBox.critical(self, "Error", f"Modelo no encontrado en:\n{model_path}\n\nAsegúrate de tener {model_name} en la carpeta content/")
+                return
+            
+            # Crear directorio de salida
+            output_dir.mkdir(parents=True, exist_ok=True)
+            
+            # Mostrar configuración al usuario antes de entrenar
+            config_msg = f"""🎯 Configuración de Entrenamiento:
+            
+📁 Modelo: {model_name}
+📊 Dataset: {data_yaml_path.name}
+⚡ Épocas: {epochs}
+🖼️ Tamaño imagen: {imgsz}
+📦 Batch size: {batch}
+💾 Salida: {output_dir}
+
+¿Continuar con el entrenamiento?"""
+            
+            reply = QMessageBox.question(self, "Confirmar Entrenamiento", config_msg,
+                                       QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+            
+            if reply != QMessageBox.StandardButton.Yes:
+                return
+            
+            # Crear worker thread con los parámetros correctos
+            self.training_worker = TrainingWorker(
+                model_name, epochs, imgsz, batch, 
+                str(data_yaml_path), str(output_dir)
+            )
             self.training_worker.progress_update.connect(self.update_progress)
             self.training_worker.training_completed.connect(self.on_training_completed)
             
@@ -502,8 +656,11 @@ class TrainTab(QWidget):
             return
         
         try:
-            # Abrir carpeta de resultados
-            results_path = config.RUNS_DIR / selection
+            # Abrir carpeta de resultados usando rutas relativas
+            base_dir = Path(__file__).parent.parent.parent  # UI/gui -> UI -> Segmentacion
+            runs_dir = base_dir / "content" / "runs"
+            results_path = runs_dir / selection
+            
             if results_path.exists():
                 os.startfile(str(results_path))  # Windows
             else:

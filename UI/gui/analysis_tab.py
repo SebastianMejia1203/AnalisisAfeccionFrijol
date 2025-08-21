@@ -116,7 +116,27 @@ class ImageDisplayWidget(QLabel):
         super().mousePressEvent(event)
     
     def open_zoom_window(self):
-        """Abrir ventana con zoom y opciones de comparación"""
+        """Abrir ventana avanzada con filtros y análisis completo"""
+        try:
+            from .advanced_image_viewer import AdvancedImageViewer
+            
+            # Crear y mostrar ventana avanzada
+            viewer = AdvancedImageViewer(
+                parent=self,
+                image_path=self.current_image_path,
+                title=self.current_title,
+                comparison_path=self.comparison_image_path,
+                comparison_title=self.comparison_title
+            )
+            viewer.exec()
+            
+        except Exception as e:
+            print(f"Error abriendo visor avanzado: {e}")
+            # Fallback a la ventana simple anterior
+            self.open_simple_zoom_window()
+    
+    def open_simple_zoom_window(self):
+        """Ventana simple de zoom (fallback)"""
         from PyQt6.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QScrollArea, QPushButton, QSlider
         
         dialog = QDialog(self)
@@ -1758,7 +1778,7 @@ class AnalysisTab(QWidget):
             
             # Definir rangos de color para plantas
             # Verde saludable
-            lower_healthy = np.array([40, 40, 40])
+            lower_healthy = np.array([35, 40, 40])
             upper_healthy = np.array([80, 255, 255])
             
             # Amarillo/marrón (enfermedad)
@@ -1767,25 +1787,20 @@ class AnalysisTab(QWidget):
             
             # Marrón oscuro/negro (necrosis)
             lower_disease2 = np.array([0, 0, 0])
-            upper_disease2 = np.array([15, 255, 100])
+            upper_disease2 = np.array([19, 255, 200])
             
             # Crear máscaras
             mask_healthy = cv2.inRange(hsv, lower_healthy, upper_healthy)
             mask_disease1 = cv2.inRange(hsv, lower_disease1, upper_disease1)
             mask_disease2 = cv2.inRange(hsv, lower_disease2, upper_disease2)
             
-            # Crear imagen de análisis
-            analysis = image_rgb.copy()
-            
-            # Aplicar colores de análisis
-            analysis[mask_healthy > 0] = [0, 255, 0]    # Verde para saludable
-            analysis[mask_disease1 > 0] = [255, 255, 0] # Amarillo para enfermedad leve
-            analysis[mask_disease2 > 0] = [255, 0, 0]   # Rojo para enfermedad severa
+            # CREAR MAPA DE CALOR en lugar de colores planos
+            analysis = self.create_heatmap_analysis(image_rgb, mask_healthy, mask_disease1, mask_disease2)
             
             # Guardar imagen de análisis
             temp_dir = Path("temp_analysis")
             temp_dir.mkdir(exist_ok=True)
-            analysis_path = temp_dir / f"{output_name}_analysis.png"
+            analysis_path = temp_dir / f"{output_name}_heatmap.png"
             
             # Convertir de RGB a BGR para guardar
             analysis_bgr = cv2.cvtColor(analysis, cv2.COLOR_RGB2BGR)
@@ -1796,6 +1811,121 @@ class AnalysisTab(QWidget):
         except Exception as e:
             print(f"Error en análisis de color: {str(e)}")
             return None
+    
+    def create_heatmap_analysis(self, image_rgb, mask_healthy, mask_disease1, mask_disease2):
+        """Crear mapa de calor para análisis de afectación"""
+        try:
+            import matplotlib.pyplot as plt
+            import matplotlib.cm as cm
+            from matplotlib.colors import ListedColormap
+            
+            # Crear mapa de intensidad de afectación
+            # 0 = fondo, 1 = saludable, 2 = enfermedad leve, 3 = enfermedad severa
+            intensity_map = np.zeros((image_rgb.shape[0], image_rgb.shape[1]), dtype=np.float32)
+            
+            # Asignar valores de intensidad
+            intensity_map[mask_healthy > 0] = 1.0    # Saludable
+            intensity_map[mask_disease1 > 0] = 2.0   # Enfermedad leve
+            intensity_map[mask_disease2 > 0] = 3.0   # Enfermedad severa (máxima prioridad)
+            
+            # Crear suavizado gaussiano para efecto de calor
+            from scipy import ndimage
+            intensity_map_smooth = ndimage.gaussian_filter(intensity_map, sigma=1.5)
+            
+            # Crear colormap personalizado para plantas
+            colors = [
+                [0.0, 0.0, 0.0, 0.0],      # Transparente para fondo (0)
+                [0.0, 0.8, 0.0, 0.8],      # Verde vibrante para saludable (1)
+                [1.0, 0.8, 0.0, 0.9],      # Amarillo-naranja para leve (2)
+                [1.0, 0.2, 0.0, 1.0]       # Rojo intenso para severo (3)
+            ]
+            
+            # Normalizar mapa de intensidad a rango 0-1
+            intensity_normalized = intensity_map_smooth / 3.0
+            
+            # Aplicar colormap
+            cmap = ListedColormap(colors)
+            colored_intensity = cmap(intensity_normalized)
+            
+            # Convertir a RGB (0-255)
+            heatmap_rgb = (colored_intensity[:, :, :3] * 255).astype(np.uint8)
+            alpha_channel = colored_intensity[:, :, 3]
+            
+            # Mezclar con imagen original usando alpha blending
+            result = image_rgb.copy().astype(np.float32)
+            
+            # Aplicar mapa de calor con transparencia
+            for c in range(3):  # RGB channels
+                result[:, :, c] = (
+                    alpha_channel * heatmap_rgb[:, :, c] + 
+                    (1 - alpha_channel) * result[:, :, c]
+                )
+            
+            # Agregar contornos para mejor definición
+            contours_healthy, _ = cv2.findContours(mask_healthy, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            contours_disease1, _ = cv2.findContours(mask_disease1, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            contours_disease2, _ = cv2.findContours(mask_disease2, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            
+            # Dibujar contornos sutiles
+            result = result.astype(np.uint8)
+            cv2.drawContours(result, contours_healthy, -1, (0, 200, 0), 1)
+            cv2.drawContours(result, contours_disease1, -1, (255, 180, 0), 1)
+            cv2.drawContours(result, contours_disease2, -1, (255, 50, 0), 2)
+            
+            return result
+            
+        except ImportError:
+            # Fallback a método simple si no hay scipy/matplotlib
+            print("⚠️ scipy no disponible, usando mapa de calor simplificado")
+            return self.create_simple_heatmap(image_rgb, mask_healthy, mask_disease1, mask_disease2)
+        except Exception as e:
+            print(f"Error creando mapa de calor: {e}")
+            return self.create_simple_heatmap(image_rgb, mask_healthy, mask_disease1, mask_disease2)
+    
+    def create_simple_heatmap(self, image_rgb, mask_healthy, mask_disease1, mask_disease2):
+        """Crear mapa de calor simple sin dependencias adicionales"""
+        try:
+            # Crear imagen base con transparencia
+            result = image_rgb.copy().astype(np.float32)
+            
+            # Crear capas de color con gradientes
+            overlay = np.zeros_like(result, dtype=np.float32)
+            
+            # Verde suave para saludable
+            overlay[mask_healthy > 0] = [0, 200, 0]
+            
+            # Amarillo-naranja para enfermedad leve
+            overlay[mask_disease1 > 0] = [255, 200, 0]
+            
+            # Rojo intenso para enfermedad severa
+            overlay[mask_disease2 > 0] = [255, 80, 0]
+            
+            # Suavizar con filtro gaussiano básico de OpenCV
+            overlay = cv2.GaussianBlur(overlay, (5, 5), 1.5)
+            
+            # Crear máscara alpha basada en intensidad
+            alpha = np.zeros((result.shape[0], result.shape[1]), dtype=np.float32)
+            alpha[mask_healthy > 0] = 0.6
+            alpha[mask_disease1 > 0] = 0.7
+            alpha[mask_disease2 > 0] = 0.8
+            
+            # Suavizar alpha
+            alpha = cv2.GaussianBlur(alpha, (5, 5), 1.5)
+            
+            # Aplicar alpha blending
+            for c in range(3):
+                result[:, :, c] = alpha * overlay[:, :, c] + (1 - alpha) * result[:, :, c]
+            
+            return result.astype(np.uint8)
+            
+        except Exception as e:
+            print(f"Error en mapa simple: {e}")
+            # Último fallback - colores planos
+            analysis = image_rgb.copy()
+            analysis[mask_healthy > 0] = [0, 255, 0]
+            analysis[mask_disease1 > 0] = [255, 255, 0]
+            analysis[mask_disease2 > 0] = [255, 0, 0]
+            return analysis
     
     def load_available_crops(self, predict_dir, image_num, category):
         """Cargar recortes disponibles para la imagen seleccionada"""
