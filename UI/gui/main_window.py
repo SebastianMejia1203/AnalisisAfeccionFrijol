@@ -3,16 +3,13 @@ Ventana principal de la aplicación
 """
 
 from PyQt6.QtWidgets import (QMainWindow, QTabWidget, QVBoxLayout, QHBoxLayout,
-                             QWidget, QPushButton, QLabel, QStatusBar,
-                             QMenu, QToolBar, QSplitter, QFrame)
-from PyQt6.QtCore import Qt, QTimer, pyqtSignal
-from PyQt6.QtGui import QIcon, QFont
+                             QWidget, QLabel, QFrame)
+from PyQt6.QtGui import QFont
 
 from gui.train_tab import TrainTab
 from gui.predict_tab import PredictTab
 from gui.analysis_tab import AnalysisTab
 from gui.results_tab import ResultsTab
-from utils.config import config
 
 class MainWindow(QMainWindow):
     """Ventana principal de la aplicación"""

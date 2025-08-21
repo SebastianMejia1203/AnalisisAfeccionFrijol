@@ -4,14 +4,12 @@ Pestaña de entrenamiento de modelos YOLO
 
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QGroupBox, 
                              QPushButton, QLabel, QComboBox, QSpinBox, 
-                             QProgressBar, QTextEdit, QFormLayout, QCheckBox,
-                             QFileDialog, QMessageBox, QSplitter, QFrame)
-from PyQt6.QtCore import Qt, QThread, pyqtSignal, QTimer
+                             QProgressBar, QTextEdit, QFormLayout, QMessageBox, QSplitter, QFrame)
+from PyQt6.QtCore import Qt, QThread, pyqtSignal
 from PyQt6.QtGui import QFont
 
 import os
 import subprocess
-import sys
 import time
 from pathlib import Path
 from datetime import datetime

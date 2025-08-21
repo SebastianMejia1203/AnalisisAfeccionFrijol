@@ -6,12 +6,11 @@ from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QGroupBox,
                              QPushButton, QLabel, QComboBox, QDoubleSpinBox, 
                              QProgressBar, QTextEdit, QFormLayout, QCheckBox,
                              QFileDialog, QMessageBox, QSplitter, QFrame,
-                             QListWidget, QListWidgetItem, QScrollArea)
-from PyQt6.QtCore import Qt, QThread, pyqtSignal, QTimer
-from PyQt6.QtGui import QFont, QPixmap
+                             QScrollArea)
+from PyQt6.QtCore import Qt, QThread, pyqtSignal
+from PyQt6.QtGui import QFont
 
 import os
-import shutil
 from pathlib import Path
 from utils.config import config
 from utils.yolo_utils import YOLOProcessor

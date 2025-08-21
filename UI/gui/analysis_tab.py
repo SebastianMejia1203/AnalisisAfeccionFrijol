@@ -11,14 +11,13 @@ from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QGroupBox,
 from PyQt6.QtCore import Qt, QThread, pyqtSignal
 from PyQt6.QtGui import QFont, QPixmap, QPainter, QPen, QImage
 
-import os
+import os 
 import numpy as np
-import cv2  # Para análisis de color
+import cv2  
 from pathlib import Path
 from utils.config import config
 from utils.plant_analyzer import PlantAnalyzer
 
-# Importaciones para histograma
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
@@ -567,7 +566,7 @@ class AnalysisTab(QWidget):
         
         # INFORMACIÓN DE LA PREDICCIÓN SELECCIONADA
         info_group = QGroupBox("Información")
-        info_group.setMaximumHeight(100)  # Altura compacta
+        info_group.setMaximumHeight(200)  # Altura compacta
         info_layout = QVBoxLayout(info_group)
         info_layout.setSpacing(5)
         
@@ -585,27 +584,6 @@ class AnalysisTab(QWidget):
         
         layout.addWidget(info_group)
         
-        # GRUPO: PARÁMETROS DE ANÁLISIS
-        params_group = QGroupBox("Parámetros de Análisis")
-        params_group.setMaximumHeight(120)  # Altura controlada
-        params_layout = QFormLayout(params_group)
-        params_layout.setSpacing(5)
-        
-        # SENSIBILIDAD - Control de detección de afectaciones
-        self.sensitivity_spin = QSpinBox()
-        self.sensitivity_spin.setRange(1, 100)
-        self.sensitivity_spin.setValue(50)
-        self.sensitivity_spin.setMinimumHeight(25)
-        params_layout.addRow("Sensibilidad:", self.sensitivity_spin)
-        
-        # ÁREA MÍNIMA - Tamaño mínimo de afectación a detectar
-        self.min_area_spin = QSpinBox()
-        self.min_area_spin.setRange(10, 1000)
-        self.min_area_spin.setValue(100)
-        self.min_area_spin.setMinimumHeight(25)
-        params_layout.addRow("Área mínima:", self.min_area_spin)
-        
-        layout.addWidget(params_group)
         
         # BOTONES PRINCIPALES
         buttons_layout = QVBoxLayout()

@@ -4,19 +4,14 @@ Pestaña de visualización de resultados y comparaciones
 
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QGroupBox, 
                              QPushButton, QLabel, QComboBox, QScrollArea,
-                             QGridLayout, QFrame, QSplitter, QTabWidget,
-                             QTextEdit, QTableWidget, QTableWidgetItem,
-                             QHeaderView, QMessageBox, QCheckBox, QFormLayout)
-from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtGui import QFont, QPixmap, QPainter, QPen, QColor
+                             QGridLayout, QFrame, QTabWidget,
+                             QTextEdit, QMessageBox, QCheckBox, QFormLayout)
+from PyQt6.QtCore import Qt
+from PyQt6.QtGui import QFont, QPixmap
 
-import os
-import json
 from pathlib import Path
-import matplotlib.pyplot as plt
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
-import numpy as np
 
 from utils.config import config
 
@@ -605,16 +600,6 @@ class ResultsTab(QWidget):
         view_group = QGroupBox("Opciones de Visualización")
         view_layout = QVBoxLayout(view_group)
         
-        self.show_labels_check = QCheckBox("Mostrar etiquetas")
-        self.show_labels_check.setChecked(True)
-        self.show_labels_check.stateChanged.connect(self.update_gallery_view)
-        view_layout.addWidget(self.show_labels_check)
-        
-        self.show_conf_check = QCheckBox("Mostrar confianza")
-        self.show_conf_check.setChecked(True)
-        self.show_conf_check.stateChanged.connect(self.update_gallery_view)
-        view_layout.addWidget(self.show_conf_check)
-        
         self.show_crops_check = QCheckBox("Mostrar recortes")
         self.show_crops_check.setChecked(False)
         self.show_crops_check.stateChanged.connect(self.update_gallery_view)
@@ -799,12 +784,6 @@ class ResultsTab(QWidget):
         for ext in ['*.jpg', '*.jpeg', '*.png', '*.JPG', '*.JPEG', '*.PNG']:
             main_images.extend(list(prediction_path.glob(ext)))
         
-        # Filtrar por opciones de visualización
-        if self.show_labels_check.isChecked() or self.show_conf_check.isChecked():
-            image_files.extend(main_images)
-        else:
-            # Si no se muestran etiquetas ni confianza, mostrar imágenes originales si existen
-            image_files.extend(main_images)
         
         # Agregar recortes si está habilitado
         crops_images = []
